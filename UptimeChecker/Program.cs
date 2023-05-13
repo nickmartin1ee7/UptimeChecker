@@ -1,6 +1,4 @@
-﻿using System.Net.NetworkInformation;
-
-class Program
+﻿class Program
 {
     static void Main()
     {
@@ -64,6 +62,8 @@ class Program
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine("[{0:O}] - Offline - Outage Count: {1}, Current Outage Duration: {2}",
                     DateTime.Now, offlineCount, currentOutageDuration);
+
+                Beep();
             }
 
             Thread.Sleep(1000);
