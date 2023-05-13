@@ -1,4 +1,6 @@
-﻿class Program
+﻿using System.Net.NetworkInformation;
+
+class Program
 {
     static void Main()
     {
@@ -35,7 +37,7 @@
                     lastOutageStart = DateTime.MinValue;
 
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine("[{0:O}] - Back Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}",
+                    Console.WriteLine("[{0:O}] - Back Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}ms",
                         DateTime.Now, offlineCount, outageDuration, pingResponseTime);
 
                     Beep();
@@ -43,7 +45,7 @@
                 else
                 {
                     Console.ForegroundColor = ConsoleColor.White;
-                    Console.WriteLine("[{0:O}] - Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}",
+                    Console.WriteLine("[{0:O}] - Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}ms",
                         DateTime.Now, offlineCount, outageDuration, pingResponseTime);
                 }
             }
