@@ -2,29 +2,33 @@
 
 class Program
 {
-    private static TimeSpan outageDuration;
-
     static void Main()
     {
         bool offline = false;
         int offlineCount = 0;
         DateTime lastOutageStart = DateTime.MinValue;
+        TimeSpan outageDuration = default;
+
+        Beep();
 
         while (true)
         {
-            bool pingResult = false;
+            bool pingSuccess;
+            long pingResponseTime = default;
+
             try
             {
-                pingResult = new Ping().Send("google.com", 1000).Status == IPStatus.Success;
+                var pingReply = new Ping().Send("google.com", 1000);
+                pingResponseTime = pingReply.RoundtripTime;
+                pingSuccess = pingReply.Status == IPStatus.Success;
             }
             catch
             {
-                pingResult = false;
+                pingSuccess = false;
             }
 
-            if (pingResult)
+            if (pingSuccess)
             {
-
                 // Online
                 if (offline)
                 {
@@ -33,14 +37,16 @@ class Program
                     lastOutageStart = DateTime.MinValue;
 
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine("[{0:O}] - Back Online - Outage Count: {1}, Last Outage Duration: {2}",
-                        DateTime.Now, offlineCount, outageDuration);
+                    Console.WriteLine("[{0:O}] - Back Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}",
+                        DateTime.Now, offlineCount, outageDuration, pingResponseTime);
+
+                    Beep();
                 }
                 else
                 {
                     Console.ForegroundColor = ConsoleColor.White;
-                    Console.WriteLine("[{0:O}] - Online - Outage Count: {1}, Last Outage Duration: {2}",
-                        DateTime.Now, offlineCount, outageDuration);
+                    Console.WriteLine("[{0:O}] - Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}",
+                        DateTime.Now, offlineCount, outageDuration, pingResponseTime);
                 }
             }
             else
@@ -51,6 +57,7 @@ class Program
                     offline = true;
                     offlineCount++;
                     lastOutageStart = DateTime.Now;
+                    Beep();
                 }
                 var currentOutageDuration = DateTime.Now - lastOutageStart;
 
@@ -60,6 +67,15 @@ class Program
             }
 
             Thread.Sleep(1000);
+        }
+    }
+
+    private static void Beep()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            Console.Beep(800, 100);
+            Thread.Sleep(25);
         }
     }
 }
