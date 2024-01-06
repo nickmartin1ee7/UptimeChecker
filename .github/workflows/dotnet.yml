@@ -40,10 +40,25 @@ jobs:
         dotnet-version: 8.0.x
     - name: Restore dependencies
       run: dotnet restore
-    - name: Publish
-      run: dotnet publish -c Release -o out
-    - name: Upload artifact
-      uses: actions/upload-artifact@v2
+    
+    - name: Publish (Self Contained)
+      run: dotnet publish -c Release -r win-x64 --self-contained -o publish-selfcontained
+      
+    - name: Publish (Single File)
+      run: dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true --self-contained false -o publish-singlefile
+            
+    - name: GitHub Publish - Archive (Self Contained)
+      run: powershell Compress-Archive -Path publish-selfcontained\* -DestinationPath UptimeChecker-SelfContained.zip
+      
+    - name: GitHub Publish - Archive (Single File)
+      run: powershell Compress-Archive -Path publish-singlefile\* -DestinationPath UptimeChecker-SingleFile.zip
+      
+    - name: GitHub Publish - Release
+      uses: softprops/action-gh-release@v1      
       with:
-        name: dotnet-app
-        path: out
+        tag_name: ${{ github.workflow }}
+        name: Release v${{ github.run_number }}
+        draft: false
+        prerelease: true
+        files:
+          UptimeChecker*.zip
