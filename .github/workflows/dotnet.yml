@@ -44,14 +44,14 @@ jobs:
     - name: Publish (Self Contained)
       run: dotnet publish -c Release -r win-x64 --self-contained -o publish-selfcontained
       
-    - name: Publish (Single File)
-      run: dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true --self-contained false -o publish-singlefile
+    - name: Publish (Dependent)
+      run: dotnet publish -c Release -r win-x64 --self-contained false -o publish-dependent
             
     - name: GitHub Publish - Archive (Self Contained)
       run: powershell Compress-Archive -Path publish-selfcontained\* -DestinationPath UptimeChecker-SelfContained.zip
       
-    - name: GitHub Publish - Archive (Single File)
-      run: powershell Compress-Archive -Path publish-singlefile\* -DestinationPath UptimeChecker-SingleFile.zip
+    - name: GitHub Publish - Archive (Dependent)
+      run: powershell Compress-Archive -Path publish-dependent\* -DestinationPath UptimeChecker-Dependent.zip
       
     - name: GitHub Publish - Release
       uses: softprops/action-gh-release@v1      
