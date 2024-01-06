@@ -1,119 +1,143 @@
 ﻿using System.Net.NetworkInformation;
+using System.Text;
 
-class Program
+using Microsoft.Extensions.Configuration;
+
+using Serilog;
+
+using UptimeChecker;
+
+var failures = new Stack<(DateTime OutageStart, int FailuresSince)>();
+
+var config = new ConfigurationBuilder()
+    .AddJsonFile("appsettings.json")
+    .Build();
+
+var settings = config
+    .GetSection(nameof(Settings))
+    .Get<Settings>()
+    .Validate();
+
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(config)
+    .CreateLogger();
+
+_ = Task.Run(UptimeJob);
+
+while (true)
 {
-    static List<int> _failedPingCounts = new List<int>();
+    // Any key draws the graph
+    Console.ReadKey(true);
+    DrawLineGraph();
+}
 
-    static void Main()
+async Task UptimeJob()
+{
+    var offline = false;
+    var offlineCount = 0;
+    var lastOutageStart = DateTime.MinValue;
+    var outageDuration = default(TimeSpan);
+
+    await BeepAsync();
+
+    while (true)
     {
-        _ = Task.Run(UptimeJob);
+        var pingSuccess = default(bool);
+        var pingResponseTime = default(long);
 
-        while (true)
+        try
         {
-            Console.ReadKey(true);
-            DrawLineGraph(); // Draw the line graph
+            var pingReply = new Ping().Send(settings!.PingTargetHost!, settings.PingTimeoutMs!.Value);
+            pingResponseTime = pingReply.RoundtripTime;
+            pingSuccess = pingReply.Status == IPStatus.Success;
         }
-    }
-
-    private static void UptimeJob()
-    {
-        bool offline = false;
-        int offlineCount = 0;
-        DateTime lastOutageStart = DateTime.MinValue;
-        TimeSpan outageDuration = default;
-
-        Beep();
-
-        while (true)
+        catch
         {
-            bool pingSuccess;
-            long pingResponseTime = default;
+            pingSuccess = false;
+        }
 
-            try
+        if (pingSuccess)
+        {
+            // We are online, but we were offline before
+            if (offline)
             {
-                var pingReply = new Ping().Send("1.1.1.1", 1000);
-                pingResponseTime = pingReply.RoundtripTime;
-                pingSuccess = pingReply.Status == IPStatus.Success;
-            }
-            catch
-            {
-                pingSuccess = false;
-            }
+                offline = false;
+                outageDuration = DateTime.Now - lastOutageStart;
+                lastOutageStart = DateTime.MinValue;
 
-            if (pingSuccess)
-            {
-                // Online
-                if (offline)
-                {
-                    offline = false;
-                    outageDuration = DateTime.Now - lastOutageStart;
-                    lastOutageStart = DateTime.MinValue;
+                Log.Warning(
+                    "[{0:O}] - Back Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}ms",
+                    DateTime.Now, offlineCount, outageDuration, pingResponseTime);
 
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine(
-                        "[{0:O}] - Back Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}ms",
-                        DateTime.Now, offlineCount, outageDuration, pingResponseTime);
+                failures.Push((DateTime.Now, 0)); // Add a zero count for successful ping
 
-                    _failedPingCounts.Add(0); // Add a zero count for successful ping
-
-                    Beep();
-                }
-                else
-                {
-                    Console.ForegroundColor = ConsoleColor.White;
-                    Console.WriteLine(
-                        "[{0:O}] - Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}ms",
-                        DateTime.Now, offlineCount, outageDuration, pingResponseTime);
-                }
+                await BeepAsync();
             }
             else
             {
-                // Offline
-                if (!offline)
-                {
-                    offline = true;
-                    offlineCount++;
-                    lastOutageStart = DateTime.Now;
-                    _failedPingCounts.Add(1); // Add a one count for failed ping
-                    Beep();
-                }
-                else
-                {
-                    _failedPingCounts[^1]++; // Increment the count for the current outage
-                }
-
-                var currentOutageDuration = DateTime.Now - lastOutageStart;
-
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("[{0:O}] - Offline - Outage Count: {1}, Current Outage Duration: {2}",
-                    DateTime.Now, offlineCount, currentOutageDuration);
+                Log.Information(
+                    "[{0:O}] - Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}ms",
+                    DateTime.Now, offlineCount, outageDuration, pingResponseTime);
             }
-
-            Thread.Sleep(1000);
         }
-    }
-
-    private static void Beep()
-    {
-        for (int i = 0; i < 4; i++)
+        else
         {
-            Console.Beep(800, 100);
-            Thread.Sleep(25);
-        }
-    }
-
-    private static void DrawLineGraph()
-    {
-        Console.WriteLine("Failed Ping Counts Line Graph:");
-        foreach (int count in _failedPingCounts)
-        {
-            Console.Write(count + " ");
-            for (int i = 0; i < count; i++)
+            // We are offline, but we were online before
+            if (!offline)
             {
-                Console.Write("#");
+                offline = true;
+                offlineCount++;
+                lastOutageStart = DateTime.Now;
+                failures.Push((DateTime.Now, 1)); // Add a one count for failed ping
+                await BeepAsync();
             }
-            Console.WriteLine();
+            else
+            {
+                var lastFailure = failures.Pop();
+                lastFailure.FailuresSince++; // Increment the count for the current outage
+                failures.Push(lastFailure);
+            }
+
+            var currentOutageDuration = DateTime.Now - lastOutageStart;
+
+            Console.ForegroundColor = ConsoleColor.Red;
+            Log.Error("[{0:O}] - Offline - Outage Count: {1}, Current Outage Duration: {2}",
+                DateTime.Now, offlineCount, currentOutageDuration);
         }
-        Console.WriteLine();
+
+        await Task.Delay(settings.PingFrequencyMs!.Value);
     }
+}
+
+static async Task BeepAsync()
+{
+    for (int i = 0; i < 4; i++)
+    {
+        Console.Beep(800, 100);
+        await Task.Delay(25);
+    }
+}
+
+void DrawLineGraph()
+{
+    var sb = new StringBuilder("Failed Ping Counts Line Graph:")
+        .AppendLine();
+
+    if (failures.Count == 0)
+    {
+        sb.Append("No failures have happened.");
+        Log.Information(sb.ToString());
+        return;
+    }
+
+    foreach (var (OutageStart, FailuresSince) in failures)
+    {
+        sb.Append($"{OutageStart} {FailuresSince} ");
+        for (int i = 0; i < FailuresSince; i++)
+        {
+            sb.Append('#');
+        }
+        sb.AppendLine();
+    }
+    Log.Information(sb.ToString()[..^1]); // Trim the last newline
 }
