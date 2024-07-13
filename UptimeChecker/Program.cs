@@ -1,13 +1,15 @@
-﻿using System.Net.NetworkInformation;
-using System.Text;
+﻿using System.Collections.Concurrent;
+using System.Net.NetworkInformation;
 
 using Microsoft.Extensions.Configuration;
 
 using Serilog;
 
+using Spectre.Console;
+
 using UptimeChecker;
 
-var failures = new Stack<(DateTime OutageStart, int FailuresSince)>();
+var failures = new ConcurrentStack<(DateTime OutageStart, DateTime OutageEnd, int FailuresSince)>();
 
 var config = new ConfigurationBuilder()
     .AddJsonFile("appsettings.json")
@@ -28,7 +30,7 @@ while (true)
 {
     // Any key draws the graph
     Console.ReadKey(true);
-    DrawLineGraph();
+    PrintOutageReport();
 }
 
 async Task UptimeJob()
@@ -61,15 +63,20 @@ async Task UptimeJob()
             // We are online, but we were offline before
             if (offline)
             {
+                var outageEnd = DateTime.Now;
                 offline = false;
-                outageDuration = DateTime.Now - lastOutageStart;
+                outageDuration = outageEnd - lastOutageStart;
                 lastOutageStart = DateTime.MinValue;
 
                 Log.Warning(
                     "[{0:O}] - Back Online - Outage Count: {1}, Last Outage Duration: {2}, Response time: {3}ms",
-                    DateTime.Now, offlineCount, outageDuration, pingResponseTime);
+                    outageEnd, offlineCount, outageDuration, pingResponseTime);
 
-                failures.Push((DateTime.Now, 0)); // Add a zero count for successful ping
+                if (failures.TryPop(out var lastFailure))
+                {
+                    lastFailure.OutageEnd = outageEnd;
+                    failures.Push(lastFailure);
+                }
 
                 await BeepAsync();
             }
@@ -88,12 +95,11 @@ async Task UptimeJob()
                 offline = true;
                 offlineCount++;
                 lastOutageStart = DateTime.Now;
-                failures.Push((DateTime.Now, 1)); // Add a one count for failed ping
+                failures.Push((DateTime.Now, DateTime.MaxValue, 1)); // Add a one count for failed ping
                 await BeepAsync();
             }
-            else
+            else if (failures.TryPop(out var lastFailure))
             {
-                var lastFailure = failures.Pop();
                 lastFailure.FailuresSince++; // Increment the count for the current outage
                 failures.Push(lastFailure);
             }
@@ -118,26 +124,72 @@ static async Task BeepAsync()
     }
 }
 
-void DrawLineGraph()
+void PrintOutageReport()
 {
-    var sb = new StringBuilder("Failed Ping Counts Line Graph:")
-        .AppendLine();
+    var tempFailures = failures
+        .OrderBy(failure => failure.OutageEnd)
+        .ToArray();
 
-    if (failures.Count == 0)
+    if (tempFailures.Length == 0)
     {
-        sb.Append("No failures have happened.");
-        Log.Information(sb.ToString());
+        AnsiConsole.WriteLine("No outages have been observed.");
         return;
     }
 
-    foreach (var (OutageStart, FailuresSince) in failures)
+    var table = new Table
     {
-        sb.Append($"{OutageStart} {FailuresSince} ");
-        for (int i = 0; i < FailuresSince; i++)
+        Title = new TableTitle("Outage Report"),
+
+        Caption = new TableTitle($"Target {settings.PingTargetHost} pinged at a rate of {settings.PingFrequencyMs}ms with a timeout of {settings.PingTimeoutMs}ms.")
+    };
+    table.AddColumns(
+            "Outage Start",
+            "Outage End",
+            "Outage Duration",
+            "Ping Failures");
+
+    var barChart = new BarChart();
+
+    foreach (var (OutageStart, OutageEnd, FailuresDuringOutage) in tempFailures)
+    {
+        var rowStyle = Style.Plain;
+
+        // Ongoing outage
+        if (OutageEnd == DateTime.MaxValue)
         {
-            sb.Append('#');
+            rowStyle = new Style(foreground: Color.Orange1, background: rowStyle.Background, decoration: rowStyle.Decoration, link: rowStyle.Link);
         }
-        sb.AppendLine();
+
+        barChart.AddItem(new BarChartItem(string.Empty, FailuresDuringOutage, rowStyle.Foreground));
     }
-    Log.Information(sb.ToString()[..^1]); // Trim the last newline
+
+    for (int i = 0; i < tempFailures.Length; i++)
+    {
+        var (OutageStart, OutageEnd, FailuresDuringOutage) = tempFailures[i];
+        var rowStyle = Style.Plain;
+        var formattedOutageEnd = $"{OutageEnd}";
+        var formattedOutageDuration = $"{OutageEnd - OutageStart}";
+
+        // Ongoing outage
+        if (OutageEnd == DateTime.MaxValue)
+        {
+            rowStyle = new Style(foreground: Color.Orange1, background: rowStyle.Background, decoration: rowStyle.Decoration, link: rowStyle.Link);
+            formattedOutageEnd = "Ongoing";
+            formattedOutageDuration = $"{DateTime.Now - OutageStart}";
+        }
+
+        var largestOutage = barChart.Data.Max(row => row.Value);
+        var localChart = new BarChart
+        {
+            Width = (int)(FailuresDuringOutage * 100 / largestOutage)
+        };
+
+        table.AddRow(
+            new Text($"{OutageStart}", rowStyle),
+            new Text(formattedOutageEnd, rowStyle),
+            new Text(formattedOutageDuration, rowStyle),
+            localChart.AddItem(barChart.Data[i]));
+    }
+
+    AnsiConsole.Write(table);
 }
