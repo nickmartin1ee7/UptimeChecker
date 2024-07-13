@@ -1,0 +1,64 @@
+# This workflow will build a .NET project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+
+name: CD
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --no-restore
+    - name: Test
+      run: dotnet test --no-build --verbosity normal
+
+  publish:
+    needs: build
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+    
+    - name: Publish (Self Contained)
+      run: dotnet publish -c Release -r win-x64 --self-contained -o publish-selfcontained
+      
+    - name: Publish (Dependent)
+      run: dotnet publish -c Release -r win-x64 --self-contained false -o publish-dependent
+            
+    - name: GitHub Publish - Archive (Self Contained)
+      run: powershell Compress-Archive -Path publish-selfcontained\* -DestinationPath UptimeChecker-SelfContained.zip
+      
+    - name: GitHub Publish - Archive (Dependent)
+      run: powershell Compress-Archive -Path publish-dependent\* -DestinationPath UptimeChecker-Dependent.zip
+      
+    - name: GitHub Publish - Release
+      uses: softprops/action-gh-release@v1      
+      with:
+        tag_name: ${{ github.workflow }}
+        name: Release v${{ github.run_number }}
+        draft: false
+        prerelease: true
+        files:
+          UptimeChecker*.zip
