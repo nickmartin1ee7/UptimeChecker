@@ -76,12 +76,12 @@ async Task UptimeJob()
                 if (failures.TryPop(out var lastFailure))
                 {
                     lastFailure.OutageEnd = outageEnd;
-                    failures.Push(lastFailure);
-                }
+                    if (lastFailure.FailuresSince > 1)
+                    {
+                        await BeepAsync(true);
+                        failures.Push(lastFailure);
+                    }
 
-                if (lastFailure.FailuresSince > 1)
-                {
-                    await BeepAsync(true);
                 }
             }
             else
@@ -106,7 +106,7 @@ async Task UptimeJob()
                 lastFailure.FailuresSince++; // Increment the count for the current outage
                 failures.Push(lastFailure);
 
-                if (lastFailure.FailuresSince > 1)
+                if (lastFailure.FailuresSince == 2)
                 {
                     await BeepAsync(false);
                 }
