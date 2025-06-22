@@ -40,7 +40,8 @@ async Task UptimeJob()
     var lastOutageStart = DateTime.MinValue;
     var outageDuration = default(TimeSpan);
 
-    await BeepAsync();
+    await BeepAsync(false);
+    await BeepAsync(true);
 
     while (true)
     {
@@ -78,7 +79,10 @@ async Task UptimeJob()
                     failures.Push(lastFailure);
                 }
 
-                await BeepAsync();
+                if (lastFailure.FailuresSince > 1)
+                {
+                    await BeepAsync(true);
+                }
             }
             else
             {
@@ -96,12 +100,16 @@ async Task UptimeJob()
                 offlineCount++;
                 lastOutageStart = DateTime.Now;
                 failures.Push((DateTime.Now, DateTime.MaxValue, 1)); // Add a one count for failed ping
-                await BeepAsync();
             }
             else if (failures.TryPop(out var lastFailure))
             {
                 lastFailure.FailuresSince++; // Increment the count for the current outage
                 failures.Push(lastFailure);
+
+                if (lastFailure.FailuresSince > 1)
+                {
+                    await BeepAsync(false);
+                }
             }
 
             var currentOutageDuration = DateTime.Now - lastOutageStart;
@@ -115,13 +123,19 @@ async Task UptimeJob()
     }
 }
 
-static async Task BeepAsync()
+static async Task BeepAsync(bool amOnline)
 {
-    for (int i = 0; i < 4; i++)
+    if (!amOnline)
     {
         Console.Beep(800, 100);
-        await Task.Delay(25);
+        Console.Beep(400, 100);
     }
+    else
+    {
+        Console.Beep(400, 100);
+        Console.Beep(800, 100);
+    }
+    await Task.Delay(25);
 }
 
 void PrintOutageReport()
