@@ -14,4 +14,5 @@ Configuration modified at `/appsettings.json`. Serilog via `IConfiguration` is s
 
 ## Screenshots
 
-![image](https://github.com/nickmartin1ee7/UptimeChecker/assets/58752614/b5baf4f3-d9f7-4e82-b3e4-f83b8200d03b)
+![image](https://github.com/user-attachments/assets/6324a313-0443-4572-b330-7be3b031a338)
+
